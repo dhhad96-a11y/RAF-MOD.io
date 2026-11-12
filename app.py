@@ -6,7 +6,7 @@ import datetime
 app = Flask(__name__)
 app.secret_key = "raf_team_mod_secure_admin_key_200"
 
-# --- قواعد البيانات (الدخول بكلمة المرور فقط بدون إظهار تلميحات) ---
+# --- قواعد البيانات (الدخول بكلمة المرور فقط بدون أي تلميحات) ---
 RESELLERS_DB = {
     "RAX TEAM MOD 200": {
         "role": "admin",
@@ -19,8 +19,8 @@ RESELLERS_DB = {
 }
 
 KEYS_DB = {
-    "RAF-7391-RF-200": {
-        "code": "RAF-7391-RF-200",
+    "RAF-9182-45A-89X": {
+        "code": "RAF-9182-45A-89X",
         "expiresAt": datetime.datetime.now().timestamp() * 1000 + (24 * 3600 * 1000),
         "createdBy": "admin",
         "status": "ACTIVE"
@@ -134,6 +134,7 @@ body{background-color:var(--bg);color:var(--text);min-height:100vh;display:flex;
             <span class="paste-link" onclick="pasteKey()">📋 PASTE</span>
         </div>
 
+        <!-- تم حذف التلميحات تماماً ليكون الحقل فارغاً ونظيفاً -->
         <input type="text" id="codeIn" class="full-key-input" placeholder="RAF-####-###-###">
 
         <button class="activate-btn" onclick="verifyKey()">✓ ACTIVATE</button>
@@ -142,7 +143,7 @@ body{background-color:var(--bg);color:var(--text);min-height:100vh;display:flex;
     </div>
 </div>
 
-<!-- PASSWORD LOGIN MODAL (بدون أي تلميحات نهائياً) -->
+<!-- PASSWORD LOGIN MODAL -->
 <div id="adminLoginModal" class="hidden auth-wrapper">
     <div class="brand-logo-text">ACCESS PORTAL</div>
     <div class="card">
@@ -342,6 +343,10 @@ table{width:100%;border-collapse:collapse;margin-top:15px}
 th, td{padding:10px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.08);font-size:13px}
 th{color:var(--muted)}
 .back-link{display:inline-block;margin-bottom:15px;color:var(--accent);text-decoration:none;font-weight:bold}
+/* تنسيق مربع عرض الكود الناتج مع زر النسخ */
+.generated-key-box { display: flex; align-items: center; justify-content: space-between; background: #040407; border: 1px solid var(--accent); border-radius: 12px; padding: 12px; margin-top: 15px; }
+.generated-key-text { font-family: monospace; color: #fff; font-size: 15px; letter-spacing: 1px; }
+.copy-btn-gen { background: rgba(255,51,51,0.2); border: 1px solid var(--accent); color: #fff; padding: 6px 14px; border-radius: 8px; font-size: 12px; cursor: pointer; width: auto; margin-top: 0; }
 </style>
 </head>
 <body>
@@ -363,7 +368,12 @@ th{color:var(--muted)}
             </select>
         </div>
         <button onclick="generateKey()">Generate Key</button>
-        <div id="resultKey" style="margin-top:15px; font-family:monospace; color:var(--accent); font-weight:bold; text-align:center; font-size:15px;"></div>
+        
+        <!-- مربع عرض الكود الناتج مع زر النسخ -->
+        <div id="resultCard" class="generated-key-box hidden">
+            <span id="resultKey" class="generated-key-text">RAF-####-###-###</span>
+            <button class="copy-btn-gen" onclick="copyGeneratedKey()">📋 COPY</button>
+        </div>
     </div>
 
     {% if role == 'admin' %}
@@ -438,11 +448,18 @@ async function generateKey() {
     });
     let data = await res.json();
     if(data.success) {
-        document.getElementById('resultKey').innerText = "Generated: " + data.code;
-        setTimeout(() => location.reload(), 1500);
+        document.getElementById('resultKey').innerText = data.code;
+        document.getElementById('resultCard').classList.remove('hidden');
     } else {
         alert("Error");
     }
+}
+
+function copyGeneratedKey() {
+    let codeText = document.getElementById('resultKey').innerText;
+    navigator.clipboard.writeText(codeText).then(() => {
+        alert("✓ Key copied to clipboard!");
+    });
 }
 
 async function addReseller() {
@@ -472,3 +489,107 @@ async function deleteReseller(p) {
         location.reload();
     } else {
         alert(data.message);
+    }
+}
+</script>
+</body>
+</html>
+"""
+
+@app.route('/')
+def index():
+    if SETTINGS["maintenance"] and session.get('role') != 'admin':
+        return "<h1>Site under maintenance.</h1>"
+    return render_template_string(INDEX_HTML)
+
+@app.route('/api/verify', methods=['POST'])
+def verify_key():
+    data = request.get_json()
+    code = data.get('code', '').strip().upper()
+    if code in KEYS_DB:
+        key_data = KEYS_DB[code]
+        now = datetime.datetime.now().timestamp() * 1000
+        if key_data['expiresAt'] < now:
+            return jsonify({"success": False, "message": "Key expired!"}), 400
+        return jsonify({
+            "success": True,
+            "code": key_data['code'],
+            "expiresAt": key_data['expiresAt'],
+            "config": RAX_CONFIG
+        })
+    return jsonify({"success": False, "message": "Invalid key!"}), 400
+
+@app.route('/api/login', methods=['POST'])
+def api_login():
+    data = request.get_json()
+    p = data.get('password', '').strip()
+    if p in RESELLERS_DB:
+        session['user_pass'] = p
+        session['role'] = RESELLERS_DB[p]['role']
+        return jsonify({"success": True})
+    return jsonify({"success": False, "message": "Invalid password!"}), 401
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('index'))
+
+@app.route('/dashboard')
+def dashboard():
+    if 'user_pass' not in session:
+        return redirect(url_for('index'))
+    return render_template_string(ADMIN_HTML, keys=KEYS_DB, resellers=RESELLERS_DB, role=session.get('role'))
+
+@app.route('/api/generate', methods=['POST'])
+def generate_key():
+    if 'user_pass' not in session:
+        return jsonify({"success": False}), 401
+    data = request.get_json()
+    val = int(data.get('val', 1))
+    dtype = data.get('type', 'hours')
+    
+    multiplier = 3600 * 1000 if dtype == 'hours' else 24 * 3600 * 1000
+    expires_at = datetime.datetime.now().timestamp() * 1000 + (val * multiplier)
+    
+    # الصيغة المطلوبة بدقة: RAF-####-###-### بأرقام وحروف عشوائية
+    p1 = ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
+    p2 = ''.join(random.choices(string.ascii_uppercase + string.digits, k=3))
+    p3 = ''.join(random.choices(string.ascii_uppercase + string.digits, k=3))
+    new_code = f"RAF-{p1}-{p2}-{p3}"
+    
+    KEYS_DB[new_code] = {
+        "code": new_code,
+        "expiresAt": expires_at,
+        "createdBy": session.get('user_pass'),
+        "status": "ACTIVE"
+    }
+    return jsonify({"success": True, "code": new_code})
+
+@app.route('/api/reseller/add', methods=['POST'])
+def add_reseller():
+    if session.get('role') != 'admin':
+        return jsonify({"success": False, "message": "Unauthorized"}), 403
+    data = request.get_json()
+    p = data.get('password', '').strip()
+    if not p:
+        return jsonify({"success": False, "message": "Password required"}), 400
+    if p in RESELLERS_DB:
+        return jsonify({"success": False, "message": "Password already exists"}), 400
+    RESELLERS_DB[p] = {"role": "reseller", "balance": 50}
+    return jsonify({"success": True})
+
+@app.route('/api/reseller/delete', methods=['POST'])
+def delete_reseller():
+    if session.get('role') != 'admin':
+        return jsonify({"success": False, "message": "Unauthorized"}), 403
+    data = request.get_json()
+    p = data.get('password', '').strip()
+    if p == "RAX TEAM MOD 200":
+        return jsonify({"success": False, "message": "Cannot delete main admin"})
+    if p in RESELLERS_DB:
+        del RESELLERS_DB[p]
+        return jsonify({"success": True})
+    return jsonify({"success": False, "message": "Not found"})
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000, debug=True)
