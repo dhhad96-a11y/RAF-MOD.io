@@ -1,16 +1,31 @@
-from flask import Flask, request, jsonify
+from flask import Flask, render_template_string, request, jsonify, session, redirect, url_for
+import random
+import string
 import datetime
 
 app = Flask(__name__)
-app.secret_key = "raf_team_mod_secure_key"
+app.secret_key = "raf_team_mod_secure_admin_key_200"
 
-# تخزين محلي آمن للأكواد
+# --- تخزين محلي (يدعم ربط Firebase لاحقاً) ---
+RESELLERS_DB = {
+    "admin": {
+        "password": "RAF TEAM MOD 200",
+        "role": "admin",
+        "balance": 99999
+    }
+}
+
 KEYS_DB = {
     "7391-RF-BSUW-XJSA": {
         "code": "7391-RF-BSUW-XJSA",
         "expiresAt": datetime.datetime.now().timestamp() * 1000 + (24 * 3600 * 1000),
+        "createdBy": "admin",
         "status": "ACTIVE"
     }
+}
+
+SETTINGS = {
+    "maintenance": False
 }
 
 # كونفيغ RAX TEAM DEV المطلوب
@@ -47,8 +62,8 @@ RAX_CONFIG = [
     }
 ]
 
-# الواجهة كود HTML مباشر داخل البايثون لتجنب مشاكل المجلدات
-HTML_CONTENT = """<!DOCTYPE html>
+# --- الواجهة الرئيسية (HTML مدمج) ---
+INDEX_HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -72,6 +87,8 @@ body{background-color:var(--bg);color:var(--text);min-height:100vh;display:flex;
 .full-key-input:focus{border-color:var(--accent);background:#0a0a12;box-shadow:0 0 15px var(--accent-glow)}
 .activate-btn{width:100%;background:linear-gradient(135deg, #ff3333, #cc0000);color:#fff;border:none;border-radius:16px;padding:16px;font-size:15px;font-weight:900;cursor:pointer;letter-spacing:2px;box-shadow:0 8px 25px var(--accent-glow);transition:0.3s}
 .activate-btn:active{transform:scale(0.98)}
+.admin-link-btn{text-align:center;margin-top:15px;font-size:12px;color:var(--muted);cursor:pointer}
+.admin-link-btn span{color:var(--accent);font-weight:bold}
 .top-bar{display:flex;justify-content:space-between;align-items:center;margin-bottom:15px}
 .app-title{font-weight:900;font-size:16px;letter-spacing:1px}
 .logout-btn{background:rgba(255,255,255,0.06);color:#fff;border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:6px 12px;font-size:11px;font-weight:bold;cursor:pointer}
@@ -118,6 +135,26 @@ body{background-color:var(--bg);color:var(--text);min-height:100vh;display:flex;
         <input type="text" id="codeIn" class="full-key-input" value="7391-RF-">
 
         <button class="activate-btn" onclick="verifyKey()">✓ ACTIVATE</button>
+
+        <div class="admin-link-btn" onclick="openAdminLogin()">Admin & Reseller Access</div>
+    </div>
+</div>
+
+<!-- ADMIN LOGIN MODAL -->
+<div id="adminLoginModal" class="hidden auth-wrapper">
+    <div class="brand-logo-text">ADMIN ACCESS</div>
+    <div class="card">
+        <div class="section-header">
+            <div class="icon-box">🛡️</div>
+            <div class="redeem-title">Sign In</div>
+        </div>
+        <div class="redeem-desc">Enter admin credentials to manage portal.</div>
+        
+        <input type="text" id="adminUser" class="full-key-input" placeholder="Username" value="admin">
+        <input type="password" id="adminPass" class="full-key-input" placeholder="Password">
+
+        <button class="activate-btn" onclick="submitAdminLogin()">LOGIN</button>
+        <div class="admin-link-btn" onclick="closeAdminLogin()">Back to Key Login</div>
     </div>
 </div>
 
@@ -180,28 +217,50 @@ function pasteKey() {
     });
 }
 
+function openAdminLogin() {
+    document.getElementById('loginPage').classList.add('hidden');
+    document.getElementById('adminLoginModal').classList.remove('hidden');
+}
+
+function closeAdminLogin() {
+    document.getElementById('adminLoginModal').classList.add('hidden');
+    document.getElementById('loginPage').classList.remove('hidden');
+}
+
+async function submitAdminLogin() {
+    let u = document.getElementById('adminUser').value;
+    let p = document.getElementById('adminPass').value;
+    let res = await fetch('/api/login', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({username: u, password: p})
+    });
+    let data = await res.json();
+    if(data.success) {
+        window.location.href = '/dashboard';
+    } else {
+        alert(data.message);
+    }
+}
+
 async function verifyKey() {
     let code = document.getElementById('codeIn').value.trim();
     if(!code || code === "7391-RF-") {
         alert("Please enter a valid key!");
         return;
     }
-    
     let res = await fetch('/api/verify', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({code: code})
     });
     let data = await res.json();
-    
     if(data.success) {
         activeConfigData = data.config;
         document.getElementById('activeKeyView').innerText = data.code;
         document.getElementById('expireDateText').innerText = new Date(data.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        
         document.getElementById('loginPage').classList.add('hidden');
         document.getElementById('homePage').classList.remove('hidden');
-        
         startTimer(data.expiresAt);
         openHappVPN();
     } else {
@@ -262,27 +321,168 @@ function doLogout() {
 </html>
 """
 
+# --- لوحة تحكم الأدمن (HTML مدمج) ---
+ADMIN_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RAF MOD - Admin Dashboard</title>
+<style>
+:root{--accent:#ff3333;--bg:#030305;--card-bg:#0a0a0e;--border:rgba(255,255,255,0.12);--text:#fff;--muted:#8888a0}
+*{box-sizing:border-box;margin:0;padding:0;font-family:'Segoe UI', sans-serif}
+body{background-color:var(--bg);color:var(--text);padding:20px;min-height:100vh}
+.container{max-width:800px;margin:0 auto}
+h1{color:var(--accent);margin-bottom:20px;text-align:center;letter-spacing:2px}
+.card{background:var(--card-bg);border:1px solid var(--border);border-radius:16px;padding:20px;margin-bottom:20px}
+.form-group{margin-bottom:15px}
+label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px;text-transform:uppercase}
+input, select{width:100%;background:#040407;border:1px solid #1f1f2e;border-radius:10px;padding:12px;color:#fff;font-size:14px;outline:none}
+button{background:linear-gradient(135deg, #ff3333, #cc0000);color:#fff;border:none;border-radius:10px;padding:12px 20px;font-weight:bold;cursor:pointer;width:100%;margin-top:5px}
+table{width:100%;border-collapse:collapse;margin-top:15px}
+th, td{padding:10px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.08);font-size:13px}
+th{color:var(--muted)}
+.back-link{display:inline-block;margin-bottom:15px;color:var(--accent);text-decoration:none;font-weight:bold}
+</style>
+</head>
+<body>
+<div class="container">
+    <a href="/" class="back-link">← Back to Portal</a>
+    <h1>RAF MOD ADMIN PANEL</h1>
+    
+    <div class="card">
+        <h3>Generate New Key (Hours / Days)</h3>
+        <div class="form-group" style="margin-top:10px;">
+            <label>Duration Value</label>
+            <input type="number" id="durVal" value="24" min="1">
+        </div>
+        <div class="form-group">
+            <label>Duration Type</label>
+            <select id="durType">
+                <option value="hours">Hours</option>
+                <option value="days">Days</option>
+            </select>
+        </div>
+        <button onclick="generateKey()">Generate Key</button>
+        <div id="resultKey" style="margin-top:15px; font-family:monospace; color:var(--accent); font-weight:bold; text-align:center; font-size:15px;"></div>
+    </div>
+
+    <div class="card">
+        <h3>Active Keys Overview</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Key</th>
+                    <th>Created By</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for k, v in keys.items() %}
+                <tr>
+                    <td><code>{{ v.code }}</code></td>
+                    <td>{{ v.createdBy }}</td>
+                    <td style="color:#2ecc71;">ACTIVE</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <a href="/logout" style="color:#ff3333; text-decoration:none; font-weight:bold; display:block; text-align:center;">LOGOUT</a>
+    </div>
+</div>
+
+<script>
+async function generateKey() {
+    let val = document.getElementById('durVal').value;
+    let type = document.getElementById('durType').value;
+    let res = await fetch('/api/generate', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({val: val, type: type})
+    });
+    let data = await res.json();
+    if(data.success) {
+        document.getElementById('resultKey').innerText = "Generated: " + data.code;
+        setTimeout(() => location.reload(), 1500);
+    } else {
+        alert("Error");
+    }
+}
+</script>
+</body>
+</html>
+"""
+
 @app.route('/')
 def index():
-    return HTML_CONTENT
+    if SETTINGS["maintenance"] and session.get('role') != 'admin':
+        return "<h1>Site under maintenance.</h1>"
+    return render_template_string(INDEX_HTML)
 
 @app.route('/api/verify', methods=['POST'])
 def verify_key():
     data = request.get_json()
     code = data.get('code', '').strip().upper()
-    
     if code in KEYS_DB:
         key_data = KEYS_DB[code]
         now = datetime.datetime.now().timestamp() * 1000
         if key_data['expiresAt'] < now:
-            return jsonify({"success": False, "message": "Key has expired!"}), 400
+            return jsonify({"success": False, "message": "Key expired!"}), 400
         return jsonify({
-            "success": True, 
+            "success": True,
             "code": key_data['code'],
             "expiresAt": key_data['expiresAt'],
             "config": RAX_CONFIG
         })
-    return jsonify({"success": False, "message": "Invalid license key!"}), 400
+    return jsonify({"success": False, "message": "Invalid key!"}), 400
+
+@app.route('/api/login', methods=['POST'])
+def api_login():
+    data = request.get_json()
+    u = data.get('username', '').strip()
+    p = data.get('password', '').strip()
+    if u in RESELLERS_DB and RESELLERS_DB[u]['password'] == p:
+        session['user'] = u
+        session['role'] = RESELLERS_DB[u]['role']
+        return jsonify({"success": True})
+    return jsonify({"success": False, "message": "Invalid credentials!"}), 401
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('index'))
+
+@app.route('/dashboard')
+def dashboard():
+    if 'user' not in session:
+        return redirect(url_for('index'))
+    return render_template_string(ADMIN_HTML, keys=KEYS_DB, resellers=RESELLERS_DB)
+
+@app.route('/api/generate', methods=['POST'])
+def generate_key():
+    if 'user' not in session:
+        return jsonify({"success": False}), 401
+    data = request.get_json()
+    val = int(data.get('val', 1))
+    dtype = data.get('type', 'hours')
+    
+    multiplier = 3600 * 1000 if dtype == 'hours' else 24 * 3600 * 1000
+    expires_at = datetime.datetime.now().timestamp() * 1000 + (val * multiplier)
+    
+    p1 = ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
+    p2 = ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
+    new_code = f"7391-RF-{p1}-{p2}"
+    
+    KEYS_DB[new_code] = {
+        "code": new_code,
+        "expiresAt": expires_at,
+        "createdBy": session['user'],
+        "status": "ACTIVE"
+    }
+    return jsonify({"success": True, "code": new_code})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
