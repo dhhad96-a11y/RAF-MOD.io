@@ -2,8 +2,6 @@ from flask import Flask, render_template_string, request, jsonify, session, redi
 import random
 import string
 import datetime
-import base64
-import json
 
 app = Flask(__name__)
 app.secret_key = "raf_team_mod_secure_admin_key_200"
@@ -20,11 +18,14 @@ RESELLERS_DB = {
     }
 }
 
+# الأكواد مع دعم حد الأجهزة وحالة التفعيل (Active/Disabled)
 KEYS_DB = {
     "RAF-9182-45A-89X": {
         "code": "RAF-9182-45A-89X",
         "expiresAt": datetime.datetime.now().timestamp() * 1000 + (24 * 3600 * 1000),
         "createdBy": "admin",
+        "maxDevices": 1,
+        "usedDevices": 0,
         "status": "ACTIVE"
     }
 }
@@ -33,43 +34,7 @@ SETTINGS = {
     "maintenance": False
 }
 
-# كونفيغ RAX TEAM DEV الأصلي
-RAX_CONFIG_RAW = [
-    {
-        "remarks": "RAX TEAM DEV [SECURE]",
-        "inbounds": [
-            {"listen": "127.0.0.1", "port": 10808, "protocol": "socks", "settings": {"auth": "noauth", "udp": True}, "sniffing": {"destOverride": ["http", "tls", "quic"], "enabled": True, "routeOnly": False}, "tag": "socks"},
-            {"listen": "127.0.0.1", "port": 10809, "protocol": "http", "sniffing": {"destOverride": ["http", "tls", "quic"], "enabled": True, "routeOnly": False}, "tag": "http"}
-        ],
-        "outbounds": [
-            {
-                "protocol": "hysteria",
-                "settings": {"address": "proxy-eu.dripwire.cc", "port": 443, "version": 2},
-                "streamSettings": {
-                    "hysteriaSettings": {"auth": "7850232467:292dbda85d7383fa", "version": 2},
-                    "network": "hysteria",
-                    "security": "tls",
-                    "tlsSettings": {"alpn": ["h3"], "serverName": "proxy-eu.dripwire.cc", "show": False},
-                    "finalmask": {"quicParams": {"disableChromeParrot": True}}
-                },
-                "tag": "proxy"
-            },
-            {"protocol": "freedom", "tag": "direct"}
-        ],
-        "routing": {
-            "domainStrategy": "AsIs",
-            "rules": [
-                {"network": "tcp", "outboundTag": "proxy", "port": "39000-39999"},
-                {"network": "udp", "outboundTag": "proxy", "port": "10000-10999"},
-                {"network": "tcp,udp", "outboundTag": "direct"}
-            ]
-        }
-    }
-]
-
-# تشفير الكونفيغ تلقائياً بصيغة Base64 لحمايته تماماً عند النسخ
-json_str = json.dumps(RAX_CONFIG_RAW, indent=4)
-ENCODED_RAX_CONFIG = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
+ENCRYPTED_SUBSCRIPTION_LINK = "happ://crypt5/fzvdLCFPPkolXTOUACtQwouK13ET9N6l96UaBoOYN8ptqH10oFWdbszJswnlLoCJPG2TkDRkE7yrl22hSZfib8+IPWmq4g1dBRAP+kW7Tc9M2faAGcL2x/vR31h8RmpGB96maWq2mBQH2J4EiWBO21qQmS36ZJpurgpbNB==6xcmpj3naGcw2BVZ1GbuZPpOrdIwywyYDQDnCVU+xwRQWES52JXaxdS31FC2eJKLtCnFBOk8cYbRNc5kgKYBX9uWhnxqhzgEgZ90SjYenldhKbZUPV+K/E4M9KlcI1FjJ3KiJbjCLSRDJXgGlGhfYrK91ygA9fa41X8beDUXFlBCSKtLjwPSxNWjNyrcfz54cgzp36V3c3z8IJMDKlthiyNQZ5R7K3KCEXuA0HcJrpuuKkwYgDnlDJlhKqC1W0aFJZILl2gcH6R/1radHmHNOcsPWNftTp/qdIesyByjw2c7+S50NGhFZOv0JkJe9ggd3cmaMg7rzy6QhxLfbPFAGCIX29wXr1LqzwB1l4jax/qM/w9pM8hyH+TgzCT1QuGHalX10NZUF5Bby1AdC6DAkavXUOkj61VepQU5Z8C9w73UB9DCZuHI0bF3qdfIaCegUwS0EC1Ld6Z6DMB8oFkJ5NyjCdj8G/WwS5OVpQnPXOTMEkJjtvlbmNE7PBcjKoz2keHgI6dFAHfjkkGszujOAPhMnWgxjsu47gIsDqiQpstDrPtN9A9nfynOOAN/XKsJLWCCFKRYbW7locsW10p+FHLpoqD8W2vANHp7JklkT5PkAwFRvMlva1jgwNaZs/R9sJZVUe5N9dDZr/gFiQ8K9G6k3On/h7BXYCXQbUWwfoI=ff"
 
 INDEX_HTML = """<!DOCTYPE html>
 <html lang="en">
@@ -187,7 +152,7 @@ body{background-color:var(--bg);color:var(--text);min-height:100vh;display:flex;
 </div>
 
 <div class="info-grid">
-  <div class="info-box"><div class="info-label">DEVICE</div><div class="info-val">1/1</div></div>
+  <div class="info-box"><div class="info-label">DEVICE</div><div class="info-val" id="deviceLimitView">1/1</div></div>
   <div class="info-box"><div class="info-label">STATUS</div><div class="info-val" style="color:#2ecc71;">ONLINE</div></div>
   <div class="info-box"><div class="info-label">EXPIRES</div><div class="info-val" id="expireDateText">-</div></div>
 </div>
@@ -195,7 +160,7 @@ body{background-color:var(--bg);color:var(--text);min-height:100vh;display:flex;
 <button class="sub-btn" onclick="openHappVPN()">
   <div>
     <div>START RAX TEAM DEV</div>
-    <div class="sub-subtxt">Launch Secure Encrypted Config</div>
+    <div class="sub-subtxt">Launch Happ VPN Subscription</div>
   </div>
   <div class="arrow-icon">→</div>
 </button>
@@ -205,7 +170,7 @@ body{background-color:var(--bg);color:var(--text);min-height:100vh;display:flex;
 </div>
 
 <script>
-let activeEncryptedConfig = null;
+let activeSubLink = null;
 let timerInterval = null;
 
 function showToast(msg) {
@@ -262,8 +227,9 @@ async function verifyKey() {
     });
     let data = await res.json();
     if(data.success) {
-        activeEncryptedConfig = data.config; // هذا الكونفيغ مشفر بصيغة Base64
+        activeSubLink = data.config;
         document.getElementById('activeKeyView').innerText = data.code;
+        document.getElementById('deviceLimitView').innerText = data.usedDevices + "/" + data.maxDevices;
         document.getElementById('expireDateText').innerText = new Date(data.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         document.getElementById('loginPage').classList.add('hidden');
         document.getElementById('homePage').classList.remove('hidden');
@@ -275,14 +241,12 @@ async function verifyKey() {
 }
 
 function openHappVPN() {
-    if(!activeEncryptedConfig) {
+    if(!activeSubLink) {
         alert("Please activate your key first!");
         return;
     }
-    // فك التشفير لحظياً عند النسخ لكي يفهمها تطبيق Happ VPN أو نسخه مشفراً حسب الحاجة
-    let decodedJson = atob(activeEncryptedConfig);
-    navigator.clipboard.writeText(decodedJson).then(() => {
-        showToast("✓ Secure Config loaded & opening Happ VPN...");
+    navigator.clipboard.writeText(activeSubLink).then(() => {
+        showToast("✓ Subscription Copied & Opening Happ VPN...");
         setTimeout(() => {
             window.location.href = "happ://";
         }, 500);
@@ -318,7 +282,7 @@ function copyActiveKey() {
 
 function doLogout() {
     if(timerInterval) clearInterval(timerInterval);
-    activeEncryptedConfig = null;
+    activeSubLink = null;
     document.getElementById('homePage').classList.add('hidden');
     document.getElementById('loginPage').classList.remove('hidden');
     document.getElementById('codeIn').value = "";
@@ -372,6 +336,10 @@ th{color:var(--muted)}
                 <option value="days">Days</option>
             </select>
         </div>
+        <div class="form-group">
+            <label>Max Devices Allowed</label>
+            <input type="number" id="maxDev" value="1" min="1">
+        </div>
         <button onclick="generateKey()">Generate Key</button>
         
         <div id="resultCard" class="generated-key-box hidden">
@@ -417,19 +385,27 @@ th{color:var(--muted)}
     {% endif %}
 
     <div class="card">
-        <h3>Active Keys Overview</h3>
+        <h3>Active Keys Overview & Control</h3>
         <table>
             <thead>
                 <tr>
                     <th>Key</th>
+                    <th>Devices</th>
                     <th>Status</th>
+                    <th>Action</th>
                 </tr>
             </thead>
             <tbody>
                 {% for k, v in keys.items() %}
                 <tr>
                     <td><code>{{ v.code }}</code></td>
-                    <td style="color:#2ecc71;">ACTIVE</td>
+                    <td>{{ v.usedDevices }}/{{ v.maxDevices }}</td>
+                    <td style="color: {% if v.status == 'ACTIVE' %}#2ecc71{% else %}#ff3333{% endif %};">{{ v.status }}</td>
+                    <td>
+                        <button style="background:{% if v.status == 'ACTIVE' %}#cc0000{% else %}#2ecc71{% endif %}; padding:5px 10px; width:auto; font-size:11px;" onclick="toggleKeyStatus('{{ v.code }}')">
+                            {% if v.status == 'ACTIVE' %}Disable{% else %}Enable{% endif %}
+                        </button>
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -445,10 +421,11 @@ th{color:var(--muted)}
 async function generateKey() {
     let val = document.getElementById('durVal').value;
     let type = document.getElementById('durType').value;
+    let maxDev = document.getElementById('maxDev').value;
     let res = await fetch('/api/generate', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({val: val, type: type})
+        body: JSON.stringify({val: val, type: type, maxDevices: maxDev})
     });
     let data = await res.json();
     if(data.success) {
@@ -456,6 +433,20 @@ async function generateKey() {
         document.getElementById('resultCard').classList.remove('hidden');
     } else {
         alert("Error");
+    }
+}
+
+async function toggleKeyStatus(code) {
+    let res = await fetch('/api/key/toggle', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({code: code})
+    });
+    let data = await res.json();
+    if(data.success) {
+        location.reload();
+    } else {
+        alert("Error updating status");
     }
 }
 
@@ -512,16 +503,28 @@ def verify_key():
     code = data.get('code', '').strip().upper()
     if code in KEYS_DB:
         key_data = KEYS_DB[code]
+        if key_data['status'] != 'ACTIVE':
+            return jsonify({"success": False, "message": "Key is disabled by admin!"}), 400
+        
         now = datetime.datetime.now().timestamp() * 1000
         if key_data['expiresAt'] < now:
-            return jsonify({"success": False, "message": "Key expired!"}), 400
+            return jsonify({"success": False, "message": "Key has expired!"}), 400
+        
+        if key_data['usedDevices'] >= key_data['maxDevices']:
+            return jsonify({"success": False, "message": "Device limit reached for this key!"}), 400
+        
+        # زيادة عداد الأجهزة المستخدمة عند التفعيل الناجح
+        key_data['usedDevices'] += 1
+
         return jsonify({
             "success": True,
             "code": key_data['code'],
             "expiresAt": key_data['expiresAt'],
-            "config": ENCODED_RAX_CONFIG # إرسال الكونفيغ مشفراً بقوة Base64
+            "maxDevices": key_data['maxDevices'],
+            "usedDevices": key_data['usedDevices'],
+            "config": ENCRYPTED_SUBSCRIPTION_LINK
         })
-    return jsonify({"success": False, "message": "Invalid key!"}), 400
+    return jsonify({"success": False, "message": "Invalid license key!"}), 400
 
 @app.route('/api/login', methods=['POST'])
 def api_login():
@@ -551,6 +554,7 @@ def generate_key():
     data = request.get_json()
     val = int(data.get('val', 1))
     dtype = data.get('type', 'hours')
+    max_devices = int(data.get('maxDevices', 1))
     
     multiplier = 3600 * 1000 if dtype == 'hours' else 24 * 3600 * 1000
     expires_at = datetime.datetime.now().timestamp() * 1000 + (val * multiplier)
@@ -564,9 +568,23 @@ def generate_key():
         "code": new_code,
         "expiresAt": expires_at,
         "createdBy": session.get('user_pass'),
+        "maxDevices": max_devices,
+        "usedDevices": 0,
         "status": "ACTIVE"
     }
     return jsonify({"success": True, "code": new_code})
+
+@app.route('/api/key/toggle', methods=['POST'])
+def toggle_key():
+    if 'user_pass' not in session:
+        return jsonify({"success": False}), 401
+    data = request.get_json()
+    code = data.get('code', '').strip().upper()
+    if code in KEYS_DB:
+        current_status = KEYS_DB[code]['status']
+        KEYS_DB[code]['status'] = 'DISABLED' if current_status == 'ACTIVE' else 'ACTIVE'
+        return jsonify({"success": True})
+    return jsonify({"success": False, "message": "Key not found"})
 
 @app.route('/api/reseller/add', methods=['POST'])
 def add_reseller():
