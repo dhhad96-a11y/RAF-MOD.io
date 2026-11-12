@@ -6,10 +6,10 @@ import datetime
 app = Flask(__name__)
 app.secret_key = "raf_team_mod_secure_admin_key_200"
 
-# --- تخزين محلي (يدعم ربط Firebase لاحقاً) ---
+# --- قواعد البيانات مع باسورد الأدمن الجديد ---
 RESELLERS_DB = {
     "admin": {
-        "password": "RAF TEAM MOD 200",
+        "password": "RAX TEAM MOD 200",
         "role": "admin",
         "balance": 99999
     }
@@ -62,7 +62,6 @@ RAX_CONFIG = [
     }
 ]
 
-# --- الواجهة الرئيسية (HTML مدمج) ---
 INDEX_HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -148,7 +147,7 @@ body{background-color:var(--bg);color:var(--text);min-height:100vh;display:flex;
             <div class="icon-box">🛡️</div>
             <div class="redeem-title">Sign In</div>
         </div>
-        <div class="redeem-desc">Enter admin credentials to manage portal.</div>
+        <div class="redeem-desc">Enter admin credentials (Pass: RAX TEAM MOD 200).</div>
         
         <input type="text" id="adminUser" class="full-key-input" placeholder="Username" value="admin">
         <input type="password" id="adminPass" class="full-key-input" placeholder="Password">
@@ -321,7 +320,6 @@ function doLogout() {
 </html>
 """
 
-# --- لوحة تحكم الأدمن (HTML مدمج) ---
 ADMIN_HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -444,7 +442,7 @@ def api_login():
     data = request.get_json()
     u = data.get('username', '').strip()
     p = data.get('password', '').strip()
-    if u in RESELLERS_DB and RESELLERS_DB[u]['password'] == p:
+    if u in RESELLERS_DB and RESELLRES_PASS_CHECK := (RESELLERS_DB[u]['password'] == p):
         session['user'] = u
         session['role'] = RESELLERS_DB[u]['role']
         return jsonify({"success": True})
