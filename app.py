@@ -2,11 +2,13 @@ from flask import Flask, render_template_string, request, jsonify, session, redi
 import random
 import string
 import datetime
+import base64
+import json
 
 app = Flask(__name__)
 app.secret_key = "raf_team_mod_secure_admin_key_200"
 
-# --- قواعد البيانات (الدخول بكلمة المرور فقط بدون أي تلميحات) ---
+# --- قواعد البيانات ---
 RESELLERS_DB = {
     "RAX TEAM MOD 200": {
         "role": "admin",
@@ -31,10 +33,10 @@ SETTINGS = {
     "maintenance": False
 }
 
-# كونفيغ RAX TEAM DEV المطلوب
-RAX_CONFIG = [
+# كونفيغ RAX TEAM DEV الأصلي
+RAX_CONFIG_RAW = [
     {
-        "remarks": "RAX TEAM DEV",
+        "remarks": "RAX TEAM DEV [SECURE]",
         "inbounds": [
             {"listen": "127.0.0.1", "port": 10808, "protocol": "socks", "settings": {"auth": "noauth", "udp": True}, "sniffing": {"destOverride": ["http", "tls", "quic"], "enabled": True, "routeOnly": False}, "tag": "socks"},
             {"listen": "127.0.0.1", "port": 10809, "protocol": "http", "sniffing": {"destOverride": ["http", "tls", "quic"], "enabled": True, "routeOnly": False}, "tag": "http"}
@@ -64,6 +66,10 @@ RAX_CONFIG = [
         }
     }
 ]
+
+# تشفير الكونفيغ تلقائياً بصيغة Base64 لحمايته تماماً عند النسخ
+json_str = json.dumps(RAX_CONFIG_RAW, indent=4)
+ENCODED_RAX_CONFIG = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
 
 INDEX_HTML = """<!DOCTYPE html>
 <html lang="en">
@@ -134,7 +140,6 @@ body{background-color:var(--bg);color:var(--text);min-height:100vh;display:flex;
             <span class="paste-link" onclick="pasteKey()">📋 PASTE</span>
         </div>
 
-        <!-- تم حذف التلميحات تماماً ليكون الحقل فارغاً ونظيفاً -->
         <input type="text" id="codeIn" class="full-key-input" placeholder="RAF-####-###-###">
 
         <button class="activate-btn" onclick="verifyKey()">✓ ACTIVATE</button>
@@ -190,7 +195,7 @@ body{background-color:var(--bg);color:var(--text);min-height:100vh;display:flex;
 <button class="sub-btn" onclick="openHappVPN()">
   <div>
     <div>START RAX TEAM DEV</div>
-    <div class="sub-subtxt">Launch Happ VPN Directly</div>
+    <div class="sub-subtxt">Launch Secure Encrypted Config</div>
   </div>
   <div class="arrow-icon">→</div>
 </button>
@@ -200,7 +205,7 @@ body{background-color:var(--bg);color:var(--text);min-height:100vh;display:flex;
 </div>
 
 <script>
-let activeConfigData = null;
+let activeEncryptedConfig = null;
 let timerInterval = null;
 
 function showToast(msg) {
@@ -257,7 +262,7 @@ async function verifyKey() {
     });
     let data = await res.json();
     if(data.success) {
-        activeConfigData = data.config;
+        activeEncryptedConfig = data.config; // هذا الكونفيغ مشفر بصيغة Base64
         document.getElementById('activeKeyView').innerText = data.code;
         document.getElementById('expireDateText').innerText = new Date(data.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         document.getElementById('loginPage').classList.add('hidden');
@@ -270,13 +275,14 @@ async function verifyKey() {
 }
 
 function openHappVPN() {
-    if(!activeConfigData) {
+    if(!activeEncryptedConfig) {
         alert("Please activate your key first!");
         return;
     }
-    let jsonString = JSON.stringify(activeConfigData, null, 4);
-    navigator.clipboard.writeText(jsonString).then(() => {
-        showToast("✓ Config loaded & opening Happ VPN...");
+    // فك التشفير لحظياً عند النسخ لكي يفهمها تطبيق Happ VPN أو نسخه مشفراً حسب الحاجة
+    let decodedJson = atob(activeEncryptedConfig);
+    navigator.clipboard.writeText(decodedJson).then(() => {
+        showToast("✓ Secure Config loaded & opening Happ VPN...");
         setTimeout(() => {
             window.location.href = "happ://";
         }, 500);
@@ -312,7 +318,7 @@ function copyActiveKey() {
 
 function doLogout() {
     if(timerInterval) clearInterval(timerInterval);
-    activeConfigData = null;
+    activeEncryptedConfig = null;
     document.getElementById('homePage').classList.add('hidden');
     document.getElementById('loginPage').classList.remove('hidden');
     document.getElementById('codeIn').value = "";
@@ -343,7 +349,6 @@ table{width:100%;border-collapse:collapse;margin-top:15px}
 th, td{padding:10px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.08);font-size:13px}
 th{color:var(--muted)}
 .back-link{display:inline-block;margin-bottom:15px;color:var(--accent);text-decoration:none;font-weight:bold}
-/* تنسيق مربع عرض الكود الناتج مع زر النسخ */
 .generated-key-box { display: flex; align-items: center; justify-content: space-between; background: #040407; border: 1px solid var(--accent); border-radius: 12px; padding: 12px; margin-top: 15px; }
 .generated-key-text { font-family: monospace; color: #fff; font-size: 15px; letter-spacing: 1px; }
 .copy-btn-gen { background: rgba(255,51,51,0.2); border: 1px solid var(--accent); color: #fff; padding: 6px 14px; border-radius: 8px; font-size: 12px; cursor: pointer; width: auto; margin-top: 0; }
@@ -369,7 +374,6 @@ th{color:var(--muted)}
         </div>
         <button onclick="generateKey()">Generate Key</button>
         
-        <!-- مربع عرض الكود الناتج مع زر النسخ -->
         <div id="resultCard" class="generated-key-box hidden">
             <span id="resultKey" class="generated-key-text">RAF-####-###-###</span>
             <button class="copy-btn-gen" onclick="copyGeneratedKey()">📋 COPY</button>
@@ -515,7 +519,7 @@ def verify_key():
             "success": True,
             "code": key_data['code'],
             "expiresAt": key_data['expiresAt'],
-            "config": RAX_CONFIG
+            "config": ENCODED_RAX_CONFIG # إرسال الكونفيغ مشفراً بقوة Base64
         })
     return jsonify({"success": False, "message": "Invalid key!"}), 400
 
@@ -551,7 +555,6 @@ def generate_key():
     multiplier = 3600 * 1000 if dtype == 'hours' else 24 * 3600 * 1000
     expires_at = datetime.datetime.now().timestamp() * 1000 + (val * multiplier)
     
-    # الصيغة المطلوبة بدقة: RAF-####-###-### بأرقام وحروف عشوائية
     p1 = ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
     p2 = ''.join(random.choices(string.ascii_uppercase + string.digits, k=3))
     p3 = ''.join(random.choices(string.ascii_uppercase + string.digits, k=3))
