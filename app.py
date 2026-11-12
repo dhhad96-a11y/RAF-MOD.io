@@ -6,12 +6,15 @@ import datetime
 app = Flask(__name__)
 app.secret_key = "raf_team_mod_secure_admin_key_200"
 
-# --- قواعد البيانات مع باسورد الأدمن الجديد ---
+# --- قاعدة بيانات الموزعين والأدمن (تعتمد على كلمة المرور فقط) ---
 RESELLERS_DB = {
-    "admin": {
-        "password": "RAX TEAM MOD 200",
+    "RAX TEAM MOD 200": {
         "role": "admin",
         "balance": 99999
+    },
+    "dealer123": {
+        "role": "reseller",
+        "balance": 50
     }
 }
 
@@ -139,18 +142,17 @@ body{background-color:var(--bg);color:var(--text);min-height:100vh;display:flex;
     </div>
 </div>
 
-<!-- ADMIN LOGIN MODAL -->
+<!-- ADMIN / RESELLER PASSWORD LOGIN MODAL -->
 <div id="adminLoginModal" class="hidden auth-wrapper">
-    <div class="brand-logo-text">ADMIN ACCESS</div>
+    <div class="brand-logo-text">ACCESS PORTAL</div>
     <div class="card">
         <div class="section-header">
             <div class="icon-box">🛡️</div>
-            <div class="redeem-title">Sign In</div>
+            <div class="redeem-title">Password Login</div>
         </div>
-        <div class="redeem-desc">Enter admin credentials (Pass: RAX TEAM MOD 200).</div>
+        <div class="redeem-desc">Enter your access password (Admin: RAX TEAM MOD 200).</div>
         
-        <input type="text" id="adminUser" class="full-key-input" placeholder="Username" value="admin">
-        <input type="password" id="adminPass" class="full-key-input" placeholder="Password">
+        <input type="password" id="adminPass" class="full-key-input" placeholder="Enter Password">
 
         <button class="activate-btn" onclick="submitAdminLogin()">LOGIN</button>
         <div class="admin-link-btn" onclick="closeAdminLogin()">Back to Key Login</div>
@@ -227,12 +229,11 @@ function closeAdminLogin() {
 }
 
 async function submitAdminLogin() {
-    let u = document.getElementById('adminUser').value;
     let p = document.getElementById('adminPass').value;
     let res = await fetch('/api/login', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({username: u, password: p})
+        body: JSON.stringify({password: p})
     });
     let data = await res.json();
     if(data.success) {
@@ -325,7 +326,7 @@ ADMIN_HTML = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>RAF MOD - Admin Dashboard</title>
+<title>RAF MOD - Dashboard</title>
 <style>
 :root{--accent:#ff3333;--bg:#030305;--card-bg:#0a0a0e;--border:rgba(255,255,255,0.12);--text:#fff;--muted:#8888a0}
 *{box-sizing:border-box;margin:0;padding:0;font-family:'Segoe UI', sans-serif}
@@ -346,7 +347,7 @@ th{color:var(--muted)}
 <body>
 <div class="container">
     <a href="/" class="back-link">← Back to Portal</a>
-    <h1>RAF MOD ADMIN PANEL</h1>
+    <h1>PORTAL DASHBOARD</h1>
     
     <div class="card">
         <h3>Generate New Key (Hours / Days)</h3>
@@ -365,13 +366,48 @@ th{color:var(--muted)}
         <div id="resultKey" style="margin-top:15px; font-family:monospace; color:var(--accent); font-weight:bold; text-align:center; font-size:15px;"></div>
     </div>
 
+    {% if role == 'admin' %}
+    <div class="card">
+        <h3>Manage Reseller Passwords</h3>
+        <div class="form-group" style="margin-top:10px;">
+            <label>New Reseller Password</label>
+            <input type="text" id="newResellerPass" placeholder="Enter password for new reseller">
+        </div>
+        <button onclick="addReseller()">Add Reseller Password</button>
+        
+        <table>
+            <thead>
+                <tr>
+                    <th>Reseller Password</th>
+                    <th>Role</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for pwd, info in resellers.items() %}
+                <tr>
+                    <td><code>{{ pwd }}</code></td>
+                    <td>{{ info.role }}</td>
+                    <td>
+                        {% if pwd != 'RAX TEAM MOD 200' %}
+                        <button style="background:#333; padding:5px 10px; width:auto;" onclick="deleteReseller('{{ pwd }}')">Delete</button>
+                        {% else %}
+                        <span>Main Admin</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
     <div class="card">
         <h3>Active Keys Overview</h3>
         <table>
             <thead>
                 <tr>
                     <th>Key</th>
-                    <th>Created By</th>
                     <th>Status</th>
                 </tr>
             </thead>
@@ -379,7 +415,6 @@ th{color:var(--muted)}
                 {% for k, v in keys.items() %}
                 <tr>
                     <td><code>{{ v.code }}</code></td>
-                    <td>{{ v.createdBy }}</td>
                     <td style="color:#2ecc71;">ACTIVE</td>
                 </tr>
                 {% endfor %}
@@ -407,6 +442,36 @@ async function generateKey() {
         setTimeout(() => location.reload(), 1500);
     } else {
         alert("Error");
+    }
+}
+
+async function addReseller() {
+    let p = document.getElementById('newResellerPass').value.trim();
+    if(!p) return alert("Enter password");
+    let res = await fetch('/api/reseller/add', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({password: p})
+    });
+    let data = await res.json();
+    if(data.success) {
+        location.reload();
+    } else {
+        alert(data.message);
+    }
+}
+
+async function deleteReseller(p) {
+    let res = await fetch('/api/reseller/delete', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({password: p})
+    });
+    let data = await res.json();
+    if(data.success) {
+        location.reload();
+    } else {
+        alert(data.message);
     }
 }
 </script>
@@ -440,13 +505,12 @@ def verify_key():
 @app.route('/api/login', methods=['POST'])
 def api_login():
     data = request.get_json()
-    u = data.get('username', '').strip()
     p = data.get('password', '').strip()
-    if u in RESELLERS_DB and RESELLRES_PASS_CHECK := (RESELLERS_DB[u]['password'] == p):
-        session['user'] = u
-        session['role'] = RESELLERS_DB[u]['role']
+    if p in RESELLERS_DB:
+        session['user_pass'] = p
+        session['role'] = RESELLERS_DB[p]['role']
         return jsonify({"success": True})
-    return jsonify({"success": False, "message": "Invalid credentials!"}), 401
+    return jsonify({"success": False, "message": "Invalid password!"}), 401
 
 @app.route('/logout')
 def logout():
@@ -455,13 +519,13 @@ def logout():
 
 @app.route('/dashboard')
 def dashboard():
-    if 'user' not in session:
+    if 'user_pass' not in session:
         return redirect(url_for('index'))
-    return render_template_string(ADMIN_HTML, keys=KEYS_DB, resellers=RESELLERS_DB)
+    return render_template_string(ADMIN_HTML, keys=KEYS_DB, resellers=RESELLERS_DB, role=session.get('role'))
 
 @app.route('/api/generate', methods=['POST'])
 def generate_key():
-    if 'user' not in session:
+    if 'user_pass' not in session:
         return jsonify({"success": False}), 401
     data = request.get_json()
     val = int(data.get('val', 1))
@@ -477,10 +541,36 @@ def generate_key():
     KEYS_DB[new_code] = {
         "code": new_code,
         "expiresAt": expires_at,
-        "createdBy": session['user'],
+        "createdBy": session.get('user_pass'),
         "status": "ACTIVE"
     }
     return jsonify({"success": True, "code": new_code})
+
+@app.route('/api/reseller/add', methods=['POST'])
+def add_reseller():
+    if session.get('role') != 'admin':
+        return jsonify({"success": False, "message": "Unauthorized"}), 403
+    data = request.get_json()
+    p = data.get('password', '').strip()
+    if not p:
+        return jsonify({"success": False, "message": "Password required"}), 400
+    if p in RESELLERS_DB:
+        return jsonify({"success": False, "message": "Password already exists"}), 400
+    RESELLERS_DB[p] = {"role": "reseller", "balance": 50}
+    return jsonify({"success": True})
+
+@app.route('/api/reseller/delete', methods=['POST'])
+def delete_reseller():
+    if session.get('role') != 'admin':
+        return jsonify({"success": False, "message": "Unauthorized"}), 403
+    data = request.get_json()
+    p = data.get('password', '').strip()
+    if p == "RAX TEAM MOD 200":
+        return jsonify({"success": False, "message": "Cannot delete main admin"})
+    if p in RESELLERS_DB:
+        del RESELLERS_DB[p]
+        return jsonify({"success": True})
+    return jsonify({"success": False, "message": "Not found"})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
